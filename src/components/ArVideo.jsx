@@ -147,8 +147,11 @@ export default function ArVideo({ onReset }) {
     const [surfaceDetected, setSurfaceDetected] = useState(false);
     const [initialOrientation, setInitialOrientation] = useState(null);
 
-    // Device orientation and motion tracking
+    // Enhanced device orientation and motion tracking with Android support
     useEffect(() => {
+        const isAndroid = /android/i.test(navigator.userAgent);
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        
         const handleOrientation = (event) => {
             // Store initial orientation when first detected
             if (!initialOrientation && event.alpha !== null) {
@@ -159,10 +162,22 @@ export default function ArVideo({ onReset }) {
                 });
             }
             
+            // Android-specific orientation handling
+            let alpha = event.alpha || 0;
+            let beta = event.beta || 0;
+            let gamma = event.gamma || 0;
+            
+            // Android Chrome sometimes returns null values, use fallbacks
+            if (isAndroid) {
+                alpha = event.alpha !== null ? event.alpha : 0;
+                beta = event.beta !== null ? event.beta : 0;
+                gamma = event.gamma !== null ? event.gamma : 0;
+            }
+            
             setDeviceOrientation({
-                alpha: event.alpha || 0, // Z axis (compass)
-                beta: event.beta || 0,   // X axis (front-back tilt)
-                gamma: event.gamma || 0  // Y axis (left-right tilt)
+                alpha: alpha, // Z axis (compass)
+                beta: beta,   // X axis (front-back tilt)
+                gamma: gamma  // Y axis (left-right tilt)
             });
         };
         
@@ -170,17 +185,26 @@ export default function ArVideo({ onReset }) {
             // Get acceleration including gravity
             const accGravity = event.accelerationIncludingGravity;
             if (accGravity) {
-                setDeviceMotion({
-                    x: accGravity.x || 0,
-                    y: accGravity.y || 0,
-                    z: accGravity.z || 0
-                });
+                // Android-specific motion handling
+                let x = accGravity.x || 0;
+                let y = accGravity.y || 0;
+                let z = accGravity.z || 0;
                 
-                // Simple surface detection based on gravity vector
-                // When phone is held flat, z-axis acceleration will be around -9.8 (gravity)
-                const isFlat = Math.abs(accGravity.z + 9.8) < 2 && 
-                              Math.abs(accGravity.x) < 2 && 
-                              Math.abs(accGravity.y) < 2;
+                // Android devices may have different coordinate systems
+                if (isAndroid) {
+                    // Some Android devices need coordinate adjustment
+                    x = accGravity.x !== null ? accGravity.x : 0;
+                    y = accGravity.y !== null ? accGravity.y : 0;
+                    z = accGravity.z !== null ? accGravity.z : 0;
+                }
+                
+                setDeviceMotion({ x, y, z });
+                
+                // Enhanced surface detection for Android
+                const gravityThreshold = isAndroid ? 3 : 2; // More lenient for Android
+                const isFlat = Math.abs(z + 9.8) < gravityThreshold && 
+                              Math.abs(x) < gravityThreshold && 
+                              Math.abs(y) < gravityThreshold;
                               
                 if (isFlat && !surfaceDetected) {
                     setSurfaceDetected(true);
@@ -189,42 +213,73 @@ export default function ArVideo({ onReset }) {
         };
 
         const requestOrientationPermission = async () => {
-            if (typeof DeviceOrientationEvent !== 'undefined' && 
+            if (isIOS && typeof DeviceOrientationEvent !== 'undefined' && 
                 typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
                     const permission = await DeviceOrientationEvent.requestPermission();
                     if (permission === 'granted') {
                         window.addEventListener('deviceorientation', handleOrientation);
+                    } else {
+                        console.log('iOS orientation permission denied');
                     }
                 } catch (error) {
-                    console.log('Device orientation permission denied');
+                    console.log('iOS orientation permission error:', error);
                 }
             } else {
-                // For non-iOS devices
+                // For Android and other devices - no permission needed
                 window.addEventListener('deviceorientation', handleOrientation);
+                
+                // Android fallback - some devices need a delay
+                if (isAndroid) {
+                    setTimeout(() => {
+                        window.addEventListener('deviceorientation', handleOrientation);
+                    }, 1000);
+                }
             }
         };
         
         const requestMotionPermission = async () => {
-            if (typeof DeviceMotionEvent !== 'undefined' && 
+            if (isIOS && typeof DeviceMotionEvent !== 'undefined' && 
                 typeof DeviceMotionEvent.requestPermission === 'function') {
                 try {
                     const permission = await DeviceMotionEvent.requestPermission();
                     if (permission === 'granted') {
                         window.addEventListener('devicemotion', handleMotion);
+                    } else {
+                        console.log('iOS motion permission denied');
                     }
                 } catch (error) {
-                    console.log('Device motion permission denied');
+                    console.log('iOS motion permission error:', error);
                 }
             } else {
-                // For non-iOS devices
+                // For Android and other devices - no permission needed
                 window.addEventListener('devicemotion', handleMotion);
+                
+                // Android fallback - some devices need a delay
+                if (isAndroid) {
+                    setTimeout(() => {
+                        window.addEventListener('devicemotion', handleMotion);
+                    }, 1000);
+                }
             }
         };
 
-        // Request both permissions
+        // Request both permissions with Android-specific handling
         requestOrientationPermission();
         requestMotionPermission();
+
+        // Android-specific: Add click handler to request permissions on user interaction
+        if (isAndroid) {
+            const handleFirstTouch = () => {
+                requestOrientationPermission();
+                requestMotionPermission();
+                document.removeEventListener('touchstart', handleFirstTouch);
+                document.removeEventListener('click', handleFirstTouch);
+            };
+            
+            document.addEventListener('touchstart', handleFirstTouch, { once: true });
+            document.addEventListener('click', handleFirstTouch, { once: true });
+        }
 
         return () => {
             window.removeEventListener('deviceorientation', handleOrientation);
@@ -283,25 +338,65 @@ export default function ArVideo({ onReset }) {
         };
     }, []);
 
-    // Camera setup with enhanced constraints
+    // Enhanced camera setup with Android compatibility
     useEffect(() => {
-        navigator.mediaDevices
-            .getUserMedia({
-                video: { 
-                    facingMode: { ideal: 'environment' },
-                    width: { ideal: 1920 },
-                    height: { ideal: 1080 }
-                },
-                audio: false,
-            })
-            .then((stream) => {
+        const isAndroid = /android/i.test(navigator.userAgent);
+        
+        const getCameraStream = async () => {
+            try {
+                // Android-specific camera constraints
+                const constraints = {
+                    video: {
+                        facingMode: { ideal: 'environment' },
+                        width: { ideal: isAndroid ? 1280 : 1920 }, // Lower resolution for Android performance
+                        height: { ideal: isAndroid ? 720 : 1080 },
+                        frameRate: { ideal: isAndroid ? 24 : 30 } // Lower framerate for Android
+                    },
+                    audio: false,
+                };
+                
+                // Try with ideal constraints first
+                let stream;
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia(constraints);
+                } catch (error) {
+                    console.warn('Ideal camera constraints failed, trying fallback:', error);
+                    
+                    // Fallback constraints for older Android devices
+                    const fallbackConstraints = {
+                        video: {
+                            facingMode: 'environment',
+                            width: { max: 1280 },
+                            height: { max: 720 }
+                        },
+                        audio: false,
+                    };
+                    
+                    stream = await navigator.mediaDevices.getUserMedia(fallbackConstraints);
+                }
+                
                 if (cameraRef.current) {
                     cameraRef.current.srcObject = stream;
+                    
+                    // Android-specific video element setup
+                    if (isAndroid) {
+                        cameraRef.current.setAttribute('playsinline', 'true');
+                        cameraRef.current.setAttribute('webkit-playsinline', 'true');
+                    }
                 }
-            })
-            .catch((err) => {
+                
+                console.log('Camera stream initialized for', isAndroid ? 'Android' : 'other device');
+            } catch (err) {
                 console.error('Camera access error:', err);
-            });
+                
+                // Show user-friendly error message for Android
+                if (isAndroid) {
+                    console.log('Android camera access failed. Please ensure camera permissions are granted.');
+                }
+            }
+        };
+        
+        getCameraStream();
     }, []);
 
     const unmuteAndPlay = () => {
@@ -571,7 +666,7 @@ export default function ArVideo({ onReset }) {
                 )}
             </div>
 
-            {/* Enhanced instructions overlay with AR guidance */}
+            {/* Enhanced instructions overlay with AR guidance and Android support */}
             {showInstructions && (
                 <div className="fixed inset-0 z-40 flex items-center justify-center pointer-events-none">
                     <div className="bg-black/70 text-white p-6 rounded-lg text-center max-w-sm mx-4">
@@ -580,7 +675,7 @@ export default function ArVideo({ onReset }) {
                             {autoPlaced ? "Avatar auto-placed! Tap to reposition" : "Tap anywhere to place your avatar"}
                         </div>
                         <div className="text-xs opacity-75">
-                            {autoPlaced ? "Or wait for auto-placement in 3 seconds" : "Move your phone to see the avatar respond"}
+                            {autoPlaced ? "Move your phone to see 3D tracking" : "Move your phone to see the avatar respond"}
                         </div>
                         <div className="text-xs opacity-60 mt-2">
                             💡 Tap bottom for larger size, top for smaller
@@ -588,6 +683,11 @@ export default function ArVideo({ onReset }) {
                         {surfaceDetected && (
                             <div className="text-xs text-green-400 mt-2">
                                 ✓ Surface detected! Tap to place avatar
+                            </div>
+                        )}
+                        {/android/i.test(navigator.userAgent) && (
+                            <div className="text-xs text-blue-400 mt-2">
+                                📱 Android optimized experience
                             </div>
                         )}
                         <div className="flex justify-center mt-3">
