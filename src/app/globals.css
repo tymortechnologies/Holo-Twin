@@ -43,6 +43,31 @@
   .ios-safe-area-top {
     padding-top: env(safe-area-inset-top);
   }
+  
+  /* iPhone-specific AR avatar optimizations */
+  @media screen and (max-width: 428px) and (max-height: 926px) {
+    /* iPhone 14 Pro Max and similar */
+    .ar-avatar-container {
+      min-width: 200px !important;
+      min-height: 300px !important;
+    }
+  }
+  
+  @media screen and (max-width: 390px) and (max-height: 844px) {
+    /* iPhone 14 and similar */
+    .ar-avatar-container {
+      min-width: 180px !important;
+      min-height: 280px !important;
+    }
+  }
+  
+  @media screen and (max-width: 375px) and (max-height: 812px) {
+    /* iPhone 13 mini and similar */
+    .ar-avatar-container {
+      min-width: 160px !important;
+      min-height: 260px !important;
+    }
+  }
 }
 
 /* Hardware acceleration for better performance */
@@ -52,6 +77,22 @@
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
   will-change: transform;
+}
+
+/* Remove any default canvas styling that might cause grey borders */
+canvas {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+/* Ensure AR avatar container has no background */
+.ar-avatar-container {
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* Prevent zoom on double tap for mobile */

@@ -140,7 +140,7 @@ export default function ArVideo({ onReset }) {
     const [deviceOrientation, setDeviceOrientation] = useState({ alpha: 0, beta: 0, gamma: 0 });
     const [deviceMotion, setDeviceMotion] = useState({ x: 0, y: 0, z: 0 });
     const [isPlaced, setIsPlaced] = useState(false);
-    const [avatarPosition, setAvatarPosition] = useState({ x: 50, y: 50, z: 0, scale: 1 });
+    const [avatarPosition, setAvatarPosition] = useState({ x: 50, y: 60, z: 0, scale: 1.2 }); // Better default for iPhone
     const [showInstructions, setShowInstructions] = useState(true);
     const [autoPlaced, setAutoPlaced] = useState(false);
     const [soundEnabled, setSoundEnabled] = useState(false);
@@ -313,8 +313,16 @@ export default function ArVideo({ onReset }) {
 
         const gl = canvasRef.current.getContext("webgl", {
             premultipliedAlpha: false,
+            alpha: true,
+            antialias: true,
+            preserveDrawingBuffer: false,
         });
         if (!gl) throw new Error("WebGL init failed");
+
+        // Set transparent clear color
+        gl.clearColor(0.0, 0.0, 0.0, 0.0);
+        gl.enable(gl.BLEND);
+        gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
         const prog = init(gl);
         const video = videoRef.current;
@@ -510,18 +518,21 @@ export default function ArVideo({ onReset }) {
                 // Smart auto-placement based on device orientation
                 let autoPosition;
                 
+                // Check if it's iPhone for better positioning
+                const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                
                 if (surfaceDetected) {
                     // If surface detected, place on surface with appropriate depth
-                    autoPosition = { x: 50, y: 65, z: 30, scale: 1.1 };
+                    autoPosition = { x: 50, y: 65, z: 30, scale: isIOS ? 1.3 : 1.1 };
                 } else if (Math.abs(deviceOrientation.beta) < 20) {
                     // Phone held relatively flat - place in front
-                    autoPosition = { x: 50, y: 60, z: 40, scale: 1.0 };
+                    autoPosition = { x: 50, y: 60, z: 40, scale: isIOS ? 1.2 : 1.0 };
                 } else if (deviceOrientation.beta < -20) {
                     // Phone tilted upward - place higher
-                    autoPosition = { x: 50, y: 40, z: -30, scale: 0.8 };
+                    autoPosition = { x: 50, y: 40, z: -30, scale: isIOS ? 1.0 : 0.8 };
                 } else {
-                    // Default placement at center-bottom
-                    autoPosition = { x: 50, y: 65, z: 0, scale: 1.0 };
+                    // Default placement at center-bottom with iPhone optimization
+                    autoPosition = { x: 50, y: 65, z: 0, scale: isIOS ? 1.2 : 1.0 };
                 }
                 
                 setAvatarPosition(autoPosition);
@@ -548,23 +559,26 @@ export default function ArVideo({ onReset }) {
         setInitialOrientation(deviceOrientation);
         
         // Smart positioning based on tap location with depth perception
-        let scale = 0.9; // Base larger size
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        let scale = isIOS ? 1.1 : 0.9; // Larger base size for iPhone
         let z = 0; // Default z-position (depth)
         
         // Adjust scale and z-position based on tap location
         if (y > 70) {
             // Bottom placement (table/floor) - larger and closer
-            scale = 1.2;
+            scale = isIOS ? 1.4 : 1.2;
             z = 50; // Closer to viewer
         } else if (y < 30) {
             // Top placement (wall/ceiling) - smaller and further away
-            scale = 0.7;
+            scale = isIOS ? 0.9 : 0.7;
             z = -50; // Further from viewer
         } else if (x < 30) {
             // Left side placement
+            scale = isIOS ? 1.0 : 0.9;
             z = -20;
         } else if (x > 70) {
             // Right side placement
+            scale = isIOS ? 1.0 : 0.9;
             z = -20;
         }
         
@@ -639,8 +653,7 @@ export default function ArVideo({ onReset }) {
         return {
             transform: `
                 perspective(${perspective}px)
-                translate3d(${avatarPosition.x + offsetX}%, ${avatarPosition.y + offsetY}%, ${zPosition}px) 
-                translate3d(-50%, -50%, 0)
+                translate3d(${offsetX}%, ${offsetY}%, ${zPosition}px) 
                 rotateX(${rotateX}deg) 
                 rotateY(${rotateY}deg) 
                 rotateZ(${rotateZ}deg)
@@ -677,24 +690,32 @@ export default function ArVideo({ onReset }) {
 
                 {/* Avatar with chroma key removal and enhanced 3D positioning - iOS optimized */}
                 <div 
-                    className="absolute pointer-events-none z-30"
+                    className="absolute pointer-events-none z-30 ar-avatar-container"
                     style={{
-                        width: isPlaced ? "35%" : "100%",
+                        width: isPlaced ? "45%" : "100%", // Increased size for iPhone
                         height: isPlaced ? "auto" : "100%",
-                        maxWidth: isPlaced ? "300px" : "none",
-                        maxHeight: isPlaced ? "350px" : "none",
+                        maxWidth: isPlaced ? "400px" : "none", // Increased max width
+                        maxHeight: isPlaced ? "500px" : "none", // Increased max height
                         left: isPlaced ? `${avatarPosition.x}%` : "0",
                         top: isPlaced ? `${avatarPosition.y}%` : "0",
-                        transform: isPlaced ? getAvatarTransform().transform : "none",
+                        transform: isPlaced ? 
+                            `${getAvatarTransform().transform} translate(-50%, -50%)` : 
+                            "none",
                         transition: getAvatarTransform().transition,
                         transformStyle: 'preserve-3d',
                         willChange: 'transform',
                         filter: 'drop-shadow(0 10px 8px rgba(0, 0, 0, 0.2))',
                         // iOS-specific optimizations
-                        WebkitTransform: isPlaced ? getAvatarTransform().transform : "none",
+                        WebkitTransform: isPlaced ? 
+                            `${getAvatarTransform().transform} translate(-50%, -50%)` : 
+                            "none",
                         WebkitTransformStyle: 'preserve-3d',
                         WebkitBackfaceVisibility: 'hidden',
-                        backfaceVisibility: 'hidden'
+                        backfaceVisibility: 'hidden',
+                        // Remove any background or border from container
+                        background: 'transparent',
+                        border: 'none',
+                        outline: 'none'
                     }}
                 >
                     <canvas
@@ -703,7 +724,11 @@ export default function ArVideo({ onReset }) {
                         style={{
                             // iOS Canvas optimizations
                             WebkitTransform: 'translateZ(0)',
-                            transform: 'translateZ(0)'
+                            transform: 'translateZ(0)',
+                            // Remove any background or border
+                            background: 'transparent',
+                            border: 'none',
+                            outline: 'none'
                         }}
                     />
                 </div>
