@@ -8,13 +8,16 @@ const ArVideo = dynamic(() => import('./ArVideo'), { ssr: false })
 export default function ARRoot() {
   const [support, setSupport] = useState({ checked: false, ar: false, reason: '' })
   const [isAndroid, setIsAndroid] = useState(false)
+  const [isIOS, setIsIOS] = useState(false)
   const [permissionsGranted, setPermissionsGranted] = useState(false)
 
   useEffect(() => {
-    // Detect Android device
+    // Detect mobile devices
     const userAgent = navigator.userAgent.toLowerCase()
     const androidDevice = /android/.test(userAgent)
+    const iosDevice = /ipad|iphone|ipod/.test(userAgent)
     setIsAndroid(androidDevice)
+    setIsIOS(iosDevice)
 
     const check = async () => {
       if (!window.isSecureContext) {
@@ -22,32 +25,32 @@ export default function ARRoot() {
         return
       }
 
-      // Enhanced Android compatibility check
-      if (androidDevice) {
-        // For Android, we'll use camera compositing mode by default
-        // but still check for WebXR support
+      // Enhanced mobile device compatibility check
+      if (androidDevice || iosDevice) {
+        // For mobile devices, we'll use camera compositing mode by default
+        const deviceType = iosDevice ? 'iOS' : 'Android'
         try {
           // Load WebXR polyfill if needed
           if (!('xr' in navigator)) {
             const { WebXRPolyfill } = await import('webxr-polyfill')
             const polyfill = new WebXRPolyfill()
-            console.log('WebXR polyfill loaded for Android')
+            console.log(`WebXR polyfill loaded for ${deviceType}`)
           }
           
           // Check for WebXR support after polyfill
           if ('xr' in navigator) {
             try {
               const ok = await navigator.xr.isSessionSupported('immersive-ar')
-              setSupport({ checked: true, ar: ok, reason: ok ? '' : 'Using camera compositing mode for Android compatibility.' })
+              setSupport({ checked: true, ar: ok, reason: ok ? '' : `Using camera compositing mode for ${deviceType} compatibility.` })
             } catch {
-              setSupport({ checked: true, ar: false, reason: 'Using camera compositing mode for Android compatibility.' })
+              setSupport({ checked: true, ar: false, reason: `Using camera compositing mode for ${deviceType} compatibility.` })
             }
           } else {
-            setSupport({ checked: true, ar: false, reason: 'Using camera compositing mode for Android compatibility.' })
+            setSupport({ checked: true, ar: false, reason: `Using camera compositing mode for ${deviceType} compatibility.` })
           }
         } catch (error) {
           console.warn('WebXR polyfill failed to load:', error)
-          setSupport({ checked: true, ar: false, reason: 'Using camera compositing mode for Android compatibility.' })
+          setSupport({ checked: true, ar: false, reason: `Using camera compositing mode for ${deviceType} compatibility.` })
         }
       } else {
         // Original logic for non-Android devices
@@ -67,10 +70,10 @@ export default function ARRoot() {
     check()
   }, [])
 
-  // Android-specific permission handling
+  // Mobile device permission handling
   useEffect(() => {
-    if (isAndroid && !permissionsGranted) {
-      const requestAndroidPermissions = async () => {
+    if ((isAndroid || isIOS) && !permissionsGranted) {
+      const requestMobilePermissions = async () => {
         try {
           // Request camera permission
           const stream = await navigator.mediaDevices.getUserMedia({ 
@@ -78,17 +81,27 @@ export default function ARRoot() {
           })
           stream.getTracks().forEach(track => track.stop()) // Stop immediately, just checking permission
           
-          // Request device orientation permission (Android doesn't need explicit permission usually)
+          // iOS-specific orientation permission handling
+          if (isIOS && typeof DeviceOrientationEvent !== 'undefined' && 
+              typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try {
+              await DeviceOrientationEvent.requestPermission()
+              await DeviceMotionEvent.requestPermission()
+            } catch (error) {
+              console.warn('iOS orientation/motion permission denied:', error)
+            }
+          }
+          
           setPermissionsGranted(true)
-          console.log('Android permissions granted')
+          console.log(`${isIOS ? 'iOS' : 'Android'} permissions granted`)
         } catch (error) {
-          console.warn('Android camera permission denied:', error)
+          console.warn(`${isIOS ? 'iOS' : 'Android'} camera permission denied:`, error)
         }
       }
       
-      requestAndroidPermissions()
+      requestMobilePermissions()
     }
-  }, [isAndroid, permissionsGranted])
+  }, [isAndroid, isIOS, permissionsGranted])
 
   const resetExperience = () => {
     // Reset functionality kept for potential future use
@@ -102,11 +115,11 @@ export default function ARRoot() {
     return <ARScene onReset={resetExperience} />
   }
   
-  // Default to camera compositing mode with Android compatibility
+  // Default to camera compositing mode with mobile compatibility
   return (
     <>
       <div className="fixed top-0 left-0 z-50 w-full bg-black/70 p-3 text-center text-sm text-white">
-        {support.reason} {isAndroid ? 'Optimized for Android.' : 'Using camera compositing mode.'}
+        {support.reason} {isIOS ? 'Optimized for iPhone.' : (isAndroid ? 'Optimized for Android.' : 'Using camera compositing mode.')}
       </div>
       <ArVideo onReset={resetExperience} />
     </>

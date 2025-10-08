@@ -9,3 +9,27 @@
 
 [build.environment]
   NODE_VERSION = "18"
+
+# Mobile and AR optimizations
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Frame-Options = "SAMEORIGIN"
+    X-Content-Type-Options = "nosniff"
+    Permissions-Policy = "camera=*, microphone=*, geolocation=*, accelerometer=*, gyroscope=*, magnetometer=*"
+    Cross-Origin-Embedder-Policy = "unsafe-none"
+    Cross-Origin-Opener-Policy = "same-origin-allow-popups"
+    Cache-Control = "public, max-age=31536000, immutable"
+
+# Special headers for video files
+[[headers]]
+  for = "/video/*"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000"
+    Cross-Origin-Resource-Policy = "cross-origin"
+
+# Service worker for PWA
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"

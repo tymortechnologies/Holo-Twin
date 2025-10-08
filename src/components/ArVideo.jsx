@@ -147,10 +147,30 @@ export default function ArVideo({ onReset }) {
     const [surfaceDetected, setSurfaceDetected] = useState(false);
     const [initialOrientation, setInitialOrientation] = useState(null);
 
-    // Enhanced device orientation and motion tracking with Android support
+    // Enhanced device orientation and motion tracking with Android and iOS support
     useEffect(() => {
         const isAndroid = /android/i.test(navigator.userAgent);
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        
+        // iOS-specific viewport and rendering fixes
+        if (isIOS) {
+            // Prevent zoom on double tap
+            document.addEventListener('touchstart', function(event) {
+                if (event.touches.length > 1) {
+                    event.preventDefault();
+                }
+            }, { passive: false });
+            
+            // Prevent zoom on double tap
+            let lastTouchEnd = 0;
+            document.addEventListener('touchend', function(event) {
+                const now = (new Date()).getTime();
+                if (now - lastTouchEnd <= 300) {
+                    event.preventDefault();
+                }
+                lastTouchEnd = now;
+            }, false);
+        }
         
         const handleOrientation = (event) => {
             // Store initial orientation when first detected
@@ -338,19 +358,20 @@ export default function ArVideo({ onReset }) {
         };
     }, []);
 
-    // Enhanced camera setup with Android compatibility
+    // Enhanced camera setup with Android and iOS compatibility
     useEffect(() => {
         const isAndroid = /android/i.test(navigator.userAgent);
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
         
         const getCameraStream = async () => {
             try {
-                // Android-specific camera constraints
+                // Device-specific camera constraints
                 const constraints = {
                     video: {
                         facingMode: { ideal: 'environment' },
-                        width: { ideal: isAndroid ? 1280 : 1920 }, // Lower resolution for Android performance
-                        height: { ideal: isAndroid ? 720 : 1080 },
-                        frameRate: { ideal: isAndroid ? 24 : 30 } // Lower framerate for Android
+                        width: { ideal: isIOS ? 1280 : (isAndroid ? 1280 : 1920) }, // Optimized resolution for iOS
+                        height: { ideal: isIOS ? 720 : (isAndroid ? 720 : 1080) },
+                        frameRate: { ideal: isIOS ? 30 : (isAndroid ? 24 : 30) } // iOS prefers 30fps
                     },
                     audio: false,
                 };
@@ -378,20 +399,30 @@ export default function ArVideo({ onReset }) {
                 if (cameraRef.current) {
                     cameraRef.current.srcObject = stream;
                     
-                    // Android-specific video element setup
-                    if (isAndroid) {
+                    // iOS and Android-specific video element setup
+                    if (isIOS || isAndroid) {
                         cameraRef.current.setAttribute('playsinline', 'true');
                         cameraRef.current.setAttribute('webkit-playsinline', 'true');
+                        cameraRef.current.setAttribute('muted', 'true');
+                        
+                        // iOS-specific attributes
+                        if (isIOS) {
+                            cameraRef.current.setAttribute('autoplay', 'true');
+                            cameraRef.current.setAttribute('controls', 'false');
+                            cameraRef.current.style.objectFit = 'cover';
+                        }
                     }
                 }
                 
-                console.log('Camera stream initialized for', isAndroid ? 'Android' : 'other device');
+                console.log('Camera stream initialized for', isIOS ? 'iOS' : (isAndroid ? 'Android' : 'other device'));
             } catch (err) {
                 console.error('Camera access error:', err);
                 
-                // Show user-friendly error message for Android
+                // Show user-friendly error message for mobile devices
                 if (isAndroid) {
                     console.log('Android camera access failed. Please ensure camera permissions are granted.');
+                } else if (isIOS) {
+                    console.log('iOS camera access failed. Please ensure camera permissions are granted and try refreshing the page.');
                 }
             }
         };
@@ -401,45 +432,59 @@ export default function ArVideo({ onReset }) {
 
     const unmuteAndPlay = () => {
         const video = videoRef.current;
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        
         if (video) {
             console.log('Attempting to enable voice...');
-            video.muted = false;
-            video.volume = 1.0; // Set volume to 100% for maximum clarity
             
-            // Force video to current time to restart audio
-            video.currentTime = video.currentTime;
-            
-            video.play().then(() => {
-                console.log('✅ Avatar voice enabled successfully - Audio should be playing');
-                setSoundEnabled(true);
-                
-                // Double-check audio is actually playing
-                setTimeout(() => {
-                    if (!video.paused && !video.muted) {
-                        console.log('🔊 Audio confirmed playing at volume:', video.volume);
-                    } else {
-                        console.log('⚠️ Audio may not be playing - retrying...');
-                        video.play();
+            // iOS-specific audio handling
+            if (isIOS) {
+                // iOS requires user interaction for audio
+                const playAudio = async () => {
+                    try {
+                        video.muted = false;
+                        video.volume = 1.0;
+                        
+                        // iOS needs explicit play call after unmuting
+                        await video.play();
+                        console.log('✅ iOS Avatar voice enabled successfully');
+                        setSoundEnabled(true);
+                    } catch (error) {
+                        console.log('❌ iOS Audio play failed:', error);
+                        // Fallback: keep trying with user interaction
+                        video.muted = false;
+                        video.volume = 1.0;
                     }
-                }, 100);
+                };
+                playAudio();
+            } else {
+                // Non-iOS devices
+                video.muted = false;
+                video.volume = 1.0;
+                video.currentTime = video.currentTime;
                 
-            }).catch((error) => {
-                console.log('❌ Audio play failed:', error);
-                console.log('Retrying audio activation...');
-                
-                // Multiple retry attempts
-                setTimeout(() => {
-                    video.muted = false;
-                    video.volume = 1.0;
-                    video.play();
-                }, 500);
-                
-                setTimeout(() => {
-                    video.muted = false;
-                    video.volume = 1.0;
-                    video.play();
-                }, 1000);
-            });
+                video.play().then(() => {
+                    console.log('✅ Avatar voice enabled successfully - Audio should be playing');
+                    setSoundEnabled(true);
+                    
+                    setTimeout(() => {
+                        if (!video.paused && !video.muted) {
+                            console.log('🔊 Audio confirmed playing at volume:', video.volume);
+                        } else {
+                            console.log('⚠️ Audio may not be playing - retrying...');
+                            video.play();
+                        }
+                    }, 100);
+                    
+                }).catch((error) => {
+                    console.log('❌ Audio play failed:', error);
+                    setTimeout(() => {
+                        video.muted = false;
+                        video.volume = 1.0;
+                        video.play();
+                    }, 500);
+                });
+            }
         } else {
             console.log('❌ Video element not found for audio activation');
         }
@@ -607,14 +652,21 @@ export default function ArVideo({ onReset }) {
 
     return (
         <>
-            <div className="fixed inset-0 z-0 flex items-center justify-center bg-black">
-                {/* Live camera feed */}
+            <div className="fixed inset-0 z-0 flex items-center justify-center bg-black overflow-hidden">
+                {/* Live camera feed with iOS optimizations */}
                 <video
                     ref={cameraRef}
                     autoPlay
                     muted
                     playsInline
+                    webkit-playsinline="true"
                     className="absolute top-0 left-0 w-full h-full object-cover z-0"
+                    style={{
+                        transform: 'translateZ(0)', // Force hardware acceleration on iOS
+                        WebkitTransform: 'translateZ(0)',
+                        WebkitBackfaceVisibility: 'hidden',
+                        backfaceVisibility: 'hidden'
+                    }}
                 />
 
                 {/* Interactive overlay for placement */}
@@ -623,7 +675,7 @@ export default function ArVideo({ onReset }) {
                     onClick={handleScreenTap}
                 />
 
-                {/* Avatar with chroma key removal and enhanced 3D positioning */}
+                {/* Avatar with chroma key removal and enhanced 3D positioning - iOS optimized */}
                 <div 
                     className="absolute pointer-events-none z-30"
                     style={{
@@ -637,12 +689,22 @@ export default function ArVideo({ onReset }) {
                         transition: getAvatarTransform().transition,
                         transformStyle: 'preserve-3d',
                         willChange: 'transform',
-                        filter: 'drop-shadow(0 10px 8px rgba(0, 0, 0, 0.2))'
+                        filter: 'drop-shadow(0 10px 8px rgba(0, 0, 0, 0.2))',
+                        // iOS-specific optimizations
+                        WebkitTransform: isPlaced ? getAvatarTransform().transform : "none",
+                        WebkitTransformStyle: 'preserve-3d',
+                        WebkitBackfaceVisibility: 'hidden',
+                        backfaceVisibility: 'hidden'
                     }}
                 >
                     <canvas
                         className="w-full h-full"
                         ref={canvasRef}
+                        style={{
+                            // iOS Canvas optimizations
+                            WebkitTransform: 'translateZ(0)',
+                            transform: 'translateZ(0)'
+                        }}
                     />
                 </div>
 
@@ -711,7 +773,7 @@ export default function ArVideo({ onReset }) {
                 Size: {Math.round(avatarPosition.scale * 100)}%
             </div>
 
-            {/* Hidden video element with dynamic source */}
+            {/* Hidden video element with dynamic source - iOS optimized */}
             <video
                 ref={videoRef}
                 src={'video/Joe-smith.mp4'}
@@ -720,31 +782,58 @@ export default function ArVideo({ onReset }) {
                 muted
                 autoPlay
                 playsInline
+                webkit-playsinline="true"
                 preload="metadata"
                 onLoadedMetadata={() => {
                     console.log('Video loaded with audio tracks:', videoRef.current?.audioTracks?.length || 'unknown');
                     console.log('Video dimensions:', videoRef.current?.videoWidth, 'x', videoRef.current?.videoHeight);
+                    
+                    // iOS-specific video setup after load
+                    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+                    if (isIOS && videoRef.current) {
+                        videoRef.current.setAttribute('webkit-playsinline', 'true');
+                        videoRef.current.setAttribute('playsinline', 'true');
+                    }
                 }}
                 onError={(e) => {
                     console.error('Video loading error:', e);
                 }}
-                style={{ display: "none" }}
+                style={{ 
+                    display: "none",
+                    // iOS-specific video optimizations
+                    WebkitTransform: 'translateZ(0)',
+                    transform: 'translateZ(0)'
+                }}
             />
 
-            {/* Controls */}
-            <a href="tel:+14842454885" className="fixed bottom-20 left-5 z-50 bg-[#ff4500] border-none text-white px-4 py-2 rounded-lg flex items-center gap-2">
+            {/* Controls - iOS safe area optimized */}
+            <a 
+                href="tel:+14842454885" 
+                className="fixed left-5 z-50 bg-[#ff4500] border-none text-white px-4 py-2 rounded-lg flex items-center gap-2 text-sm"
+                style={{
+                    bottom: 'max(20px, env(safe-area-inset-bottom, 20px) + 60px)' // iOS safe area support
+                }}
+            >
                 <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M3.654 1.328a.678.678 0 0 0-1.015-.063L1.605 2.3c-.483.484-.661 1.169-.45 1.77a17.568 17.568 0 0 0 4.168 6.608 17.569 17.569 0 0 0 6.608 4.168c.601.211 1.286.033 1.77-.45l1.034-1.034a.678.678 0 0 0-.063-1.015l-2.307-1.794a.678.678 0 0 0-.58-.122l-2.19.547a1.745 1.745 0 0 1-1.657-.459L5.482 8.062a1.745 1.745 0 0 1-.46-1.657l.548-2.19a.678.678 0 0 0-.122-.58L3.654 1.328zM1.884.511a1.745 1.745 0 0 1 2.612.163L6.29 2.98c.329.423.445.974.315 1.494l-.547 2.19a.678.678 0 0 0 .178.643l2.457 2.457a.678.678 0 0 0 .644.178l2.189-.547a1.745 1.745 0 0 1 1.494.315l2.306 1.794c.829.645.905 1.87.163 2.611l-1.034 1.034c-.74.74-1.846 1.065-2.877.702a18.634 18.634 0 0 1-7.01-4.42 18.634 18.634 0 0 1-4.42-7.009c-.362-1.03-.037-2.137.703-2.877L1.885.511z"/>
                 </svg>
                 Speak to Sales
             </a>
 
-            <div className="fixed bottom-4 left-0 w-full z-50 flex justify-center gap-3">
+            <div 
+                className="fixed left-0 w-full z-50 flex justify-center gap-3 px-4"
+                style={{
+                    bottom: 'max(16px, env(safe-area-inset-bottom, 16px))' // iOS safe area support
+                }}
+            >
                 <button
                     onClick={unmuteAndPlay}
-                    className={`btn border-none text-white px-4 py-2 rounded-lg ${
+                    className={`btn border-none text-white px-4 py-2 rounded-lg text-sm ${
                         soundEnabled ? 'bg-green-600' : 'bg-[#ff4500]'
                     }`}
+                    style={{
+                        WebkitTapHighlightColor: 'transparent' // Remove iOS tap highlight
+                    }}
                 >
                     {soundEnabled ? '🔊 Voice Active' : '🔇 Enable Voice'}
                 </button>
@@ -752,7 +841,10 @@ export default function ArVideo({ onReset }) {
                 {isPlaced && (
                     <button
                         onClick={handleReposition}
-                        className="btn bg-blue-600 border-none text-white px-4 py-2 rounded-lg"
+                        className="btn bg-blue-600 border-none text-white px-4 py-2 rounded-lg text-sm"
+                        style={{
+                            WebkitTapHighlightColor: 'transparent' // Remove iOS tap highlight
+                        }}
                     >
                         📍 Reposition
                     </button>
